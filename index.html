@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>LIMINAL.CO</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2320221a'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%23c9c18a'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%2320221a'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+
+    <!-- ================= HUD ================= -->
+    <div id="hud">
+      <div id="hud-top-left">
+        <div id="hud-level">LIMINAL.CO</div>
+        <div id="hud-obj">FOLLOWING: 0   STILL LOST: 0</div>
+      </div>
+      <div id="hud-top-right">
+        <div class="mates-title">FIELD TEAM</div>
+        <div id="hud-mates"></div>
+      </div>
+
+      <div id="hud-log"></div>
+
+      <div id="hud-bottom-left">
+        <div class="bar-row"><span class="bar-label">HP</span><div class="bar"><i id="bar-hp" class="fill hp"></i></div></div>
+        <div class="bar-row"><span class="bar-label">SANITY</span><div class="bar"><i id="bar-san" class="fill san"></i></div></div>
+        <div class="bar-row"><span class="bar-label">STAMINA</span><div class="bar"><i id="bar-stam" class="fill stam"></i></div></div>
+        <div class="bar-row"><span class="bar-label">BATTERY</span><div class="bar"><i id="bar-batt" class="fill batt"></i></div></div>
+      </div>
+      <div id="hud-bottom-right">
+        <div id="hud-weapon">PISTOL</div>
+        <div id="hud-hint">WASD move · MOUSE aim · CLICK fire · 1-4 weapon · F light · SHIFT run · E interact · P pause</div>
+      </div>
+    </div>
+
+    <!-- ================= TITLE ================= -->
+    <div id="scr-title" class="screen">
+      <div class="screen-inner">
+        <div class="logo">LIMINAL<span class="dot">.</span>CO</div>
+        <div class="tag">FIELD RECOVERY DIVISION</div>
+        <p class="brief">
+          You are an operative of <b>Liminal Co.</b> — the only company that goes <i>in</i>.
+          People slip through the seams of reality into the endless spaces behind it:
+          the mono-yellow halls, the humming offices, the warm and wrong poolrooms.
+          They are still down there. So are the things that found them first.
+        </p>
+        <p class="brief small">
+          Take your team. Take your weapons. Go as deep as you can.
+          <b>Rescue everyone you find</b> and reach the exit before the place takes your mind.
+          It is endless. You will not save them all. Try anyway.
+        </p>
+        <button id="startBtn" class="btn">CLOCK IN ▸</button>
+        <div class="controls">
+          <span>WASD — move</span><span>MOUSE — aim</span><span>CLICK / SPACE — fire</span>
+          <span>1-4 — weapons</span><span>SHIFT — sprint</span><span>F — flashlight</span>
+          <span>E — rescue / descend</span><span>P — pause · M — mute</span>
+        </div>
+        <div class="warn">contains flashing light, sudden sound, and the feeling of a place you almost remember. headphones recommended.</div>
+      </div>
+    </div>
+
+    <!-- ================= PAUSE ================= -->
+    <div id="scr-pause" class="screen">
+      <div class="screen-inner">
+        <div class="logo small">PAUSED</div>
+        <button id="resumeBtn" class="btn">RESUME ▸</button>
+        <div class="controls">
+          <span>WASD — move</span><span>MOUSE — aim</span><span>CLICK / SPACE — fire</span>
+          <span>1-4 — weapons</span><span>SHIFT — sprint</span><span>F — flashlight</span>
+          <span>E — rescue / descend</span><span>M — mute</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= DEATH ================= -->
+    <div id="scr-dead" class="screen">
+      <div class="screen-inner">
+        <div class="logo small glitch">SIGNAL LOST</div>
+        <div class="tag">Liminal Co. regrets to inform your emergency contact.</div>
+        <div class="stats">
+          <div><span class="k">DEPTH REACHED</span><span class="v" id="death-depth">0</span></div>
+          <div><span class="k">SOULS RECOVERED</span><span class="v" id="death-saved">0</span></div>
+          <div><span class="k">LEFT BEHIND</span><span class="v" id="death-lost">0</span></div>
+          <div><span class="k">ENTITIES PURGED</span><span class="v" id="death-kills">0</span></div>
+        </div>
+        <button id="restartBtn" class="btn">CLOCK BACK IN ▸</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/iso.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
