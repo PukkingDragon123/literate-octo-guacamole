@@ -45,6 +45,7 @@
   }
 
   const SPRITE_SCALE = 2.4;
+  const byDepth = (a, b) => a.d - b.d; // hoisted so render() doesn't alloc a closure/frame
 
   // Nostalgic intrusive-thought pool — surfaces on timers to build the tone.
   const MEMORIES = [
@@ -181,9 +182,10 @@
     }
 
     _enemyRoster(index) {
+      // Depth 0 is a gentle introduction: only hounds, so a new player learns
+      // to move and shoot. Smilers (fast, high-damage) debut at depth 1.
       const r = ['hound', 'hound'];
-      if (index >= 0) r.push('smiler');
-      if (index >= 1) r.push('lurker');
+      if (index >= 1) r.push('smiler', 'lurker');
       if (index >= 2) r.push('wailer', 'smiler');
       if (index >= 3) r.push('lurker', 'hound');
       return r;
@@ -247,16 +249,16 @@
       if (!this.world.isOpen(sx, sy)) return;
       const q = [sy * w + sx]; this.navField[q[0]] = 0;
       let head = 0;
+      const nf = this.navField, wd = this.world;
       while (head < q.length) {
-        const cur = q[head++]; const cx = cur % w, cy = (cur / w) | 0; const d = this.navField[cur];
+        const cur = q[head++]; const cx = cur % w, cy = (cur / w) | 0; const d = nf[cur];
         if (d > 60) continue; // cap spread for perf
-        const ns = [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
-        for (const [nx, ny] of ns) {
-          if (!this.world.isOpen(nx, ny)) continue;
-          const ni = ny * w + nx;
-          if (this.navField[ni] !== -1) continue;
-          this.navField[ni] = d + 1; q.push(ni);
-        }
+        const nd = d + 1; let ni;
+        // inlined 4-neighbour expansion (no per-node array allocation)
+        if (wd.isOpen(cx + 1, cy)) { ni = cy * w + cx + 1; if (nf[ni] === -1) { nf[ni] = nd; q.push(ni); } }
+        if (wd.isOpen(cx - 1, cy)) { ni = cy * w + cx - 1; if (nf[ni] === -1) { nf[ni] = nd; q.push(ni); } }
+        if (wd.isOpen(cx, cy + 1)) { ni = (cy + 1) * w + cx; if (nf[ni] === -1) { nf[ni] = nd; q.push(ni); } }
+        if (wd.isOpen(cx, cy - 1)) { ni = (cy - 1) * w + cx; if (nf[ni] === -1) { nf[ni] = nd; q.push(ni); } }
       }
     }
     navDir(x, y) {
@@ -352,8 +354,8 @@
       let target = null, bd = 1.5;
       for (const s of this.survivors) { if (s.rescued || s.dead || s.saved) continue; const d = dist(s.x, s.y, p.x, p.y); if (d < bd) { bd = d; target = s; } }
       if (target) { target.rescued = true; this.log('Rescued ' + target.name + '. Stay close.'); this.audio.rescue(); return; }
-      // descend at exit
-      if (dist(this.world.exit.x, this.world.exit.y, p.x, p.y) < 1.4) { this.descend(); }
+      // descend at exit (radius matches the prompt in _renderPrompts)
+      if (dist(this.world.exit.x, this.world.exit.y, p.x, p.y) < 1.6) { this.descend(); }
     }
 
     // ---- Main loop ------------------------------------------------------------
@@ -362,6 +364,9 @@
       this._last = t;
       this.time += dt;
       try {
+        // Pause key must work in both directions, so poll it here (update()
+        // doesn't run while paused). endFrame() below keeps the edge accurate.
+        if (this.input.pressed('pause') && (this.state === 'playing' || this.state === 'paused')) this.togglePause();
         if (this.state === 'playing') this.update(dt);
         this.render(dt);
         this.input.endFrame();
@@ -374,7 +379,6 @@
 
     update(dt) {
       const inp = this.input;
-      if (inp.pressed('pause')) { this.togglePause(); return; }
       if (inp.pressed('mute')) { this.audio.setMuted(this.audio.enabled); this.log(this.audio.enabled ? 'SOUND ON' : 'SOUND OFF'); }
       if (inp.pressed('interact')) this.handleInteract();
 
@@ -480,7 +484,10 @@
       minX = Math.max(0, (minX | 0) - 2); minY = Math.max(0, (minY | 0) - 2);
       maxX = Math.min(this.world.w - 1, (maxX | 0) + 2); maxY = Math.min(this.world.h - 1, (maxY | 0) + 3);
 
-      // 1) floors
+      // 1) floors + faint grid lines in a single pass; grid diamonds batch into
+      //    one Path2D stroked once (one loop, one stroke, instead of two loops).
+      const HW = iso.HW, HH = iso.HH;
+      const grid = new Path2D();
       for (let gy = minY; gy <= maxY; gy++) {
         for (let gx = minX; gx <= maxX; gx++) {
           if (this.world.isWall(gx, gy)) continue;
@@ -494,33 +501,36 @@
             const vcol = th.floor[this.world.variant[gy * this.world.w + gx] % th.floor.length];
             iso.drawFloor(ctx, sx, sy, vcol);
           }
+          grid.moveTo(sx, sy - HH); grid.lineTo(sx + HW, sy);
+          grid.lineTo(sx, sy + HH); grid.lineTo(sx - HW, sy); grid.closePath();
         }
       }
-      // faint floor grid lines
-      ctx.strokeStyle = th.floorLine; ctx.lineWidth = 1;
-      for (let gy = minY; gy <= maxY; gy++) {
-        for (let gx = minX; gx <= maxX; gx++) {
-          if (this.world.isWall(gx, gy)) continue;
-          const s = iso.worldToScreen(gx, gy); const sx = s.x + originX, sy = s.y + originY;
-          iso.floorPath(ctx, sx, sy); ctx.stroke();
-        }
-      }
+      ctx.strokeStyle = th.floorLine; ctx.lineWidth = 1; ctx.stroke(grid);
 
-      // 2) build depth-sorted render list of walls + entities
-      const list = [];
+      // 2) build depth-sorted render list of walls + entities. Entries are drawn
+      //    from a reused pool so we don't allocate hundreds of literals per frame.
+      const list = this._renderList || (this._renderList = []);
+      const pool = this._rlPool || (this._rlPool = []);
+      list.length = 0;
+      let rlN = 0;
+      const push = (d, kind, ref, gx, gy) => {
+        let e = pool[rlN]; if (!e) e = pool[rlN] = {};
+        rlN++; e.d = d; e.kind = kind; e.ref = ref; e.gx = gx; e.gy = gy;
+        list.push(e);
+      };
       for (let gy = minY; gy <= maxY; gy++) for (let gx = minX; gx <= maxX; gx++) {
-        if (this.world.isWall(gx, gy)) list.push({ d: gx + gy - 0.01, kind: 'wall', gx, gy });
+        if (this.world.isWall(gx, gy)) push(gx + gy - 0.01, 'wall', null, gx, gy);
       }
       const exit = this.world.exit;
-      list.push({ d: exit.x + exit.y, kind: 'exit' });
-      for (const it of this.items) list.push({ d: it.depth(), kind: 'item', ref: it });
-      for (const s of this.survivors) if (!s.saved && !s.dead) list.push({ d: s.depth(), kind: 'survivor', ref: s });
-      for (const e of this.enemies) list.push({ d: e.depth(), kind: 'enemy', ref: e });
-      for (const t of this.teammates) if (!t.dead) list.push({ d: t.depth(), kind: 'mate', ref: t });
-      list.push({ d: this.player.depth(), kind: 'player' });
-      for (const b of this.bullets) list.push({ d: b.depth() + 0.5, kind: 'bullet', ref: b });
-      for (const s of this.spits) list.push({ d: s.depth() + 0.5, kind: 'spit', ref: s });
-      list.sort((a, b) => a.d - b.d);
+      push(exit.x + exit.y, 'exit', null, 0, 0);
+      for (const it of this.items) push(it.depth(), 'item', it, 0, 0);
+      for (const s of this.survivors) if (!s.saved && !s.dead) push(s.depth(), 'survivor', s, 0, 0);
+      for (const e of this.enemies) push(e.depth(), 'enemy', e, 0, 0);
+      for (const t of this.teammates) if (!t.dead) push(t.depth(), 'mate', t, 0, 0);
+      push(this.player.depth(), 'player', null, 0, 0);
+      for (const b of this.bullets) push(b.depth() + 0.5, 'bullet', b, 0, 0);
+      for (const s of this.spits) push(s.depth() + 0.5, 'spit', s, 0, 0);
+      list.sort(byDepth);
 
       for (const item of list) this._drawListItem(ctx, item, th, originX, originY);
 
@@ -539,8 +549,9 @@
       // 5) atmosphere: vignette, grain, scanlines, sanity distortion
       this._renderAtmosphere(dt);
 
-      // 6) interaction prompts (world-space)
+      // 6) interaction prompts (world-space) + faint off-screen exit compass
       this._renderPrompts(ctx, originX, originY);
+      this._renderExitCompass(ctx, originX, originY);
     }
 
     _drawListItem(ctx, item, th, ox, oy) {
@@ -608,6 +619,9 @@
       const san = this.player.sanity / 100;
       octx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       octx.globalCompositeOperation = 'source-over';
+      // clear last frame's overlay first, or the semi-transparent darkness fill
+      // accumulates toward fully opaque black in any region no light re-carves.
+      octx.clearRect(0, 0, W, H);
       // base darkness (darker at low sanity)
       const darkA = clamp(0.62 + (1 - san) * 0.22, 0, 0.9);
       octx.fillStyle = `rgba(8,10,7,${darkA})`;
@@ -627,7 +641,9 @@
       const ps = iso.worldToScreen(this.player.x, this.player.y); const psx = ps.x + ox, psy = ps.y + oy - 6;
       this._lightBlob(octx, psx, psy, 60, 0.55);
       if (this.player.flashlightOn && this.player.battery > 0) {
-        this._flashlight(octx, psx, psy, this.screenAimScreen(), 300, 0.55);
+        let fint = 0.55;
+        if (this.player.battery < 22) fint *= (Math.random() < 0.3 ? 0.22 : 0.82); // dying-battery flicker
+        this._flashlight(octx, psx, psy, this.screenAimScreen(), 300, fint);
       }
       // muzzle flashes + teammate muzzles
       for (const pt of this.particles) if (pt.kind === 'muzzle') { const s = iso.worldToScreen(pt.x, pt.y); this._lightBlob(octx, s.x + ox, s.y + oy - 8, 90, 1); }
@@ -654,11 +670,22 @@
       g2.globalAlpha = 1; g2.globalCompositeOperation = 'source-over';
     }
     _lightBlob(octx, sx, sy, r, intensity) {
-      const grad = octx.createRadialGradient(sx, sy, r * 0.1, sx, sy, r);
-      grad.addColorStop(0, `rgba(255,255,255,${intensity})`);
-      grad.addColorStop(0.6, `rgba(255,255,255,${intensity * 0.5})`);
+      // blit a pre-baked radial texture scaled with globalAlpha for intensity,
+      // instead of building a fresh createRadialGradient per light every frame.
+      const tex = this._lightTex || (this._lightTex = this._makeLightTex());
+      octx.globalAlpha = clamp(intensity, 0, 1);
+      octx.drawImage(tex, sx - r, sy - r, r * 2, r * 2);
+      octx.globalAlpha = 1;
+    }
+    _makeLightTex() {
+      const S = 128, c = L.makeCanvas(S, S), g = c.getContext('2d');
+      g.imageSmoothingEnabled = true;
+      const grad = g.createRadialGradient(S / 2, S / 2, S * 0.05, S / 2, S / 2, S / 2);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.6, 'rgba(255,255,255,0.5)');
       grad.addColorStop(1, 'rgba(255,255,255,0)');
-      octx.fillStyle = grad; octx.beginPath(); octx.arc(sx, sy, r, 0, 7); octx.fill();
+      g.fillStyle = grad; g.fillRect(0, 0, S, S);
+      return c;
     }
     _flashlight(octx, sx, sy, ang, len, intensity) {
       const half = 0.42;
@@ -749,6 +776,27 @@
       }
     }
 
+    // Faint chevron at the screen edge pointing to the exit rift when it's
+    // off-screen — just enough wayfinding to keep the rescue loop moving.
+    _renderExitCompass(ctx, ox, oy) {
+      const s = iso.worldToScreen(this.world.exit.x, this.world.exit.y);
+      const ex = s.x + ox, ey = s.y + oy;
+      const W = this.vw, H = this.vh, m = 64;
+      if (ex > m && ex < W - m && ey > m && ey < H - m) return; // on-screen: rift is its own beacon
+      const cx = W / 2, cy = H / 2;
+      const a = Math.atan2(ey - cy, ex - cx);
+      let px = cx + Math.cos(a) * (W / 2 - m), py = cy + Math.sin(a) * (H / 2 - m);
+      px = clamp(px, m, W - m); py = clamp(py, m, H - m);
+      const pulse = 0.28 + Math.sin(this.time * 4) * 0.12;
+      ctx.save();
+      ctx.translate(px, py); ctx.rotate(a);
+      ctx.fillStyle = `rgba(160,232,240,${pulse})`;
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = `rgba(160,232,240,${pulse})`; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('EXIT', px, py + (py < H / 2 ? 24 : -16));
+    }
+
     // ---- HUD (DOM) ------------------------------------------------------------
     updateHUD() {
       const p = this.player;
@@ -761,14 +809,21 @@
       const lvl = document.getElementById('hud-level');
       if (lvl) lvl.textContent = this.world.theme.name + '   ·   DEPTH ' + this.levelIndex + '   ·   SAVED ' + this.saved + '  LOST ' + this.lost;
       const mates = document.getElementById('hud-mates');
-      if (mates) mates.innerHTML = this.teammates.map(t => {
-        if (t.dead) return `<span class="mate dead">${t.name} ✝</span>`;
-        if (t.downed) return `<span class="mate down">${t.name} ⤓</span>`;
-        const pct = Math.round(clamp(t.hp / t.maxHp * 100, 0, 100));
-        return `<span class="mate">${t.name} ${pct}%</span>`;
-      }).join('');
+      if (mates) {
+        const html = this.teammates.map(t => {
+          if (t.dead) return `<span class="mate dead">${t.name} ✝</span>`;
+          if (t.downed) return `<span class="mate down">${t.name} ⤓</span>`;
+          const pct = Math.round(clamp(t.hp / t.maxHp * 100, 0, 100));
+          return `<span class="mate">${t.name} ${pct}%</span>`;
+        }).join('');
+        if (html !== this._matesHTML) { mates.innerHTML = html; this._matesHTML = html; }
+      }
       const logEl = document.getElementById('hud-log');
-      if (logEl) logEl.innerHTML = this.logs.map(l => `<div style="opacity:${clamp(l.t / 3, 0, 1)}">${l.msg}</div>`).join('');
+      if (logEl) {
+        // round opacity so a fading log doesn't reparse the DOM every single frame
+        const html = this.logs.map(l => `<div style="opacity:${clamp(l.t / 3, 0, 1).toFixed(1)}">${l.msg}</div>`).join('');
+        if (html !== this._logHTML) { logEl.innerHTML = html; this._logHTML = html; }
+      }
     }
 
     fillDeathScreen() {

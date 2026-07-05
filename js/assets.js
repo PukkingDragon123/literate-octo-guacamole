@@ -204,6 +204,14 @@
     px(g, 3, 3, 1, 3, '#c9a23a'); px(g, 5, 3, 1, 3, '#c9a23a'); px(g, 7, 3, 1, 3, '#c9a23a');
     return c;
   }
+  function drawSanity() {
+    // a small calm-blue orb — "a moment of calm"
+    const c = makeCanvas(12, 12), g = c.getContext('2d');
+    px(g, 3, 3, 6, 6, '#12140f');
+    px(g, 4, 3, 4, 6, '#7a6ad0'); px(g, 3, 4, 6, 4, '#7a6ad0');
+    px(g, 4, 4, 3, 3, '#a898e8'); px(g, 5, 5, 1, 1, '#eae2ff');
+    return c;
+  }
   function drawWeaponPickup(kind) {
     const c = makeCanvas(16, 10), g = c.getContext('2d');
     px(g, 1, 5, 14, 3, '#15140f');
@@ -297,7 +305,8 @@
       ammo: drawAmmo(),
       pistol: drawWeaponPickup('pistol'),
       shotgun: drawWeaponPickup('shotgun'),
-      smg: drawWeaponPickup('smg')
+      smg: drawWeaponPickup('smg'),
+      sanity: drawSanity()
     };
 
     A.exit = entitySet(drawExit);

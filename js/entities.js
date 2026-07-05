@@ -12,11 +12,11 @@
   // ---- collision --------------------------------------------------------------
   function blockedAt(world, x, y, r) {
     // check the 4 corners of the entity's bounding box against blocked cells
-    const pts = [[x - r, y - r], [x + r, y - r], [x - r, y + r], [x + r, y + r]];
-    for (const [px, py] of pts) {
-      if (world.isBlocked(Math.round(px), Math.round(py))) return true;
-    }
-    return false;
+    // (inlined, no per-call allocation — this is a movement hot path)
+    return world.isBlocked(Math.round(x - r), Math.round(y - r)) ||
+           world.isBlocked(Math.round(x + r), Math.round(y - r)) ||
+           world.isBlocked(Math.round(x - r), Math.round(y + r)) ||
+           world.isBlocked(Math.round(x + r), Math.round(y + r));
   }
   function moveEntity(e, dx, dy, world) {
     const r = e.r;
@@ -120,9 +120,9 @@
         this._stepT -= dt;
         if (this._stepT <= 0) { this._stepT = wantSprint ? 0.28 : 0.4; game.audio.step(); }
       }
-      // stamina
-      if (wantSprint) this.stamina = clamp(this.stamina - 26 * dt, 0, this.maxStamina);
-      else this.stamina = clamp(this.stamina + 14 * dt, 0, this.maxStamina);
+      // stamina (drain must stay low enough that a sprint burst can open a gap)
+      if (wantSprint) this.stamina = clamp(this.stamina - 20 * dt, 0, this.maxStamina);
+      else this.stamina = clamp(this.stamina + 16 * dt, 0, this.maxStamina);
 
       this.animate(dt, moving, wantSprint ? 1.6 : 1);
       this.applyKnockback(dt, world);
@@ -142,14 +142,18 @@
       if (input.down('fire') && this.cooldown <= 0) this.fire(game);
 
       // battery
-      if (this.flashlightOn) this.battery = clamp(this.battery - 1.6 * dt, 0, this.maxBattery);
+      if (this.flashlightOn) this.battery = clamp(this.battery - 1.2 * dt, 0, this.maxBattery);
+      // telegraph the flashlight dying so the sanity spike isn't a surprise
+      if (this.battery < 22 && this.battery > 0 && !this._lowBattWarned) { this._lowBattWarned = true; game.log('battery failing...'); }
+      if (this.battery > 30) this._lowBattWarned = false;
       if (this.battery <= 0) this.flashlightOn = false;
 
       // sanity dynamics
       let sanDrain = 0.35; // baseline slow drain (the place gets to you)
       const inLight = game.lightLevelAt(this.x, this.y);
-      if (inLight < 0.25) sanDrain += 1.2;     // darkness
-      if (!this.flashlightOn && inLight < 0.4) sanDrain += 0.6;
+      // darkness and flashlight-off penalties do NOT fully stack (no opaque cliff)
+      if (inLight < 0.25) sanDrain += 1.2;               // full darkness
+      else if (!this.flashlightOn && inLight < 0.4) sanDrain += 0.6;
       // nearby teammates reassure
       let mates = 0;
       for (const t of game.teammates) if (!t.dead && !t.downed && dist(t.x, t.y, this.x, this.y) < 5) mates++;
@@ -337,7 +341,7 @@
 
   // ---- Enemies ----------------------------------------------------------------
   const ENEMY_DEFS = {
-    smiler: { hp: 60, r: 0.34, wander: 1.6, chase: 5.8, contact: 16, atkCd: 0.85, sanity: 8, aggro: 6.5, ranged: false, growl: 90 },
+    smiler: { hp: 60, r: 0.34, wander: 1.6, chase: 5.0, contact: 16, atkCd: 0.85, sanity: 8, aggro: 6.5, ranged: false, growl: 90 },
     hound:  { hp: 38, r: 0.30, wander: 1.8, chase: 5.4, contact: 7,  atkCd: 0.55, sanity: 0, aggro: 7.5, ranged: false, growl: 150 },
     lurker: { hp: 90, r: 0.40, wander: 1.2, chase: 2.4, contact: 9,  atkCd: 1.0,  sanity: 0, aggro: 8.0, ranged: true, prefRange: 5.5, spitDmg: 11, growl: 70 },
     wailer: { hp: 46, r: 0.32, wander: 1.0, chase: 1.9, contact: 0,  atkCd: 1.0,  sanity: 0, aggro: 9.0, ranged: false, aura: 5, growl: 60 }
